@@ -66,6 +66,10 @@ class ALPRApp(tk.Tk):
         self.minsize(900, 620)
 
         self._photo_ref = None   # keep PhotoImage alive (GC prevention)
+        self.cap = None
+        self.is_streaming = False
+        self.current_frame = None
+
         self._build_ui()
         self.update_idletasks()
         # Center window
@@ -73,6 +77,14 @@ class ALPRApp(tk.Tk):
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
+
+        self._start_stream()
+
+    def destroy(self):
+        self.is_streaming = False
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+        super().destroy()
 
     # ── UI construction ──────────────────────────────────────────────────────
     def _build_ui(self):
@@ -122,7 +134,7 @@ class ALPRApp(tk.Tk):
         right.grid(row=0, column=1, sticky="nsew")
 
         # Capture button
-        self.btn = tk.Button(
+        self.btn_capture = tk.Button(
             right,
             text="📷   Capture Frame",
             font=("Segoe UI", 13, "bold"),
@@ -133,8 +145,23 @@ class ALPRApp(tk.Tk):
             cursor="hand2",
             command=self._on_capture,
         )
-        self.btn.pack(fill="x")
-        self._bind_hover(self.btn, ACCENT_HV, ACCENT)
+        self.btn_capture.pack(fill="x", pady=(0, 10))
+        self._bind_hover(self.btn_capture, ACCENT_HV, ACCENT)
+
+        # Resume button
+        self.btn_resume = tk.Button(
+            right,
+            text="▶   Resume Camera",
+            font=("Segoe UI", 13, "bold"),
+            fg="white", bg="#30363d",
+            activebackground="#4b5563", activeforeground="white",
+            relief="flat", bd=0,
+            padx=16, pady=14,
+            cursor="hand2",
+            command=self._on_resume,
+        )
+        self.btn_resume.pack(fill="x")
+        self._bind_hover(self.btn_resume, "#4b5563", "#30363d")
 
         # Status label
         self.status_var = tk.StringVar(value="Ready.")
@@ -191,33 +218,79 @@ class ALPRApp(tk.Tk):
         self.status_var.set(msg)
         self.update_idletasks()
 
+    # ── Camera streaming ─────────────────────────────────────────────────────
+    def _start_stream(self):
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            messagebox.showerror("Camera Error", "Cannot open webcam (device 0).")
+            return
+        
+        self.is_streaming = True
+        self._set_status("Live camera feed active.")
+        self.btn_resume.config(state="disabled", bg="#21262d")
+        self.btn_capture.config(state="normal")
+        self._update_stream()
+
+    def _update_stream(self):
+        if self.is_streaming and self.cap and self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if ret:
+                self.current_frame = frame
+                rgb  = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img  = Image.fromarray(rgb)
+                
+                # Use Image.Resampling.LANCZOS if available, else Image.LANCZOS
+                resampling = getattr(Image, "Resampling", Image)
+                lanczos = getattr(resampling, "LANCZOS", getattr(Image, "LANCZOS", 1))
+                
+                img.thumbnail((PREVIEW_W, PREVIEW_H), lanczos)
+                photo = ImageTk.PhotoImage(img)
+                self.img_label.config(image=photo, text="")
+                self._photo_ref = photo
+            
+            self.after(30, self._update_stream)
+
+    def _on_resume(self):
+        if not self.cap or not self.cap.isOpened():
+            self._start_stream()
+            return
+            
+        self.is_streaming = True
+        self.btn_resume.config(state="disabled", bg="#21262d")
+        self.btn_capture.config(state="normal", text="📷   Capture Frame")
+        self._set_status("Live camera feed active.")
+        
+        # Clear the detections and plates display
+        self.det_text.config(state="normal")
+        self.det_text.delete("1.0", "end")
+        self.det_text.config(state="disabled")
+        
+        for w in self.plates_frame.winfo_children():
+            w.destroy()
+        self._empty_label = tk.Label(
+            self.plates_frame, text="—",
+            font=("Segoe UI", 10), fg=TEXT_SEC, bg=BG_DARK,
+        )
+        self._empty_label.pack(anchor="w")
+
+        self.update_idletasks()
+        self._update_stream()
+
     # ── Capture pipeline ─────────────────────────────────────────────────────
     def _on_capture(self):
-        self.btn.config(state="disabled", text="⏳   Processing…")
-        self._set_status("Opening camera…")
-        threading.Thread(target=self._pipeline, daemon=True).start()
+        if not self.is_streaming or self.current_frame is None:
+            return
+            
+        self.is_streaming = False
+        self.btn_capture.config(state="disabled", text="⏳   Processing…")
+        self.btn_resume.config(state="normal", bg="#30363d")
+        self._set_status("Processing captured frame…")
+        
+        frame_to_process = self.current_frame.copy()
+        threading.Thread(target=self._pipeline, args=(frame_to_process,), daemon=True).start()
 
-    def _pipeline(self):
+    def _pipeline(self, frame):
         try:
-            # 1. Grab a single frame from the webcam ─────────────────────────
-            cap = cv2.VideoCapture(0)
-            if not cap.isOpened():
-                self.after(0, lambda: messagebox.showerror(
-                    "Camera Error", "Cannot open webcam (device 0)."))
-                return
-
-            # Warm up the sensor (discard first few frames)
-            for _ in range(5):
-                cap.read()
-
-            ret, frame = cap.read()
-            cap.release()
-
-            if not ret or frame is None:
-                self.after(0, lambda: messagebox.showerror(
-                    "Camera Error", "Failed to grab a frame from the webcam."))
-                return
-
             self.after(0, lambda: self._set_status("Running YOLO detection…"))
 
             # 2. YOLO ─────────────────────────────────────────────────────────
@@ -249,15 +322,19 @@ class ALPRApp(tk.Tk):
         except Exception as exc:
             self.after(0, lambda: messagebox.showerror("Pipeline Error", str(exc)))
         finally:
-            self.after(0, lambda: self.btn.config(
-                state="normal", text="📷   Capture Frame"))
+            self.after(0, lambda: self.btn_capture.config(
+                text="📷   Capture Frame"))
 
     # ── UI update (always on main thread) ────────────────────────────────────
     def _update_ui(self, annotated_bgr, detections, plate_results):
         # ── Frame image ──────────────────────────────────────────────────────
         rgb  = cv2.cvtColor(annotated_bgr, cv2.COLOR_BGR2RGB)
         img  = Image.fromarray(rgb)
-        img.thumbnail((PREVIEW_W, PREVIEW_H), Image.LANCZOS)
+        
+        resampling = getattr(Image, "Resampling", Image)
+        lanczos = getattr(resampling, "LANCZOS", getattr(Image, "LANCZOS", 1))
+        
+        img.thumbnail((PREVIEW_W, PREVIEW_H), lanczos)
         photo = ImageTk.PhotoImage(img)
         self.img_label.config(image=photo, text="")
         self._photo_ref = photo   # prevent GC
@@ -311,7 +388,7 @@ class ALPRApp(tk.Tk):
 # ---------------------------------------------------------------------------
 def main():
     yolo_path = os.path.join(_PROJECT_ROOT, "models", "yolo26_custom.pt")
-    lpr_path  = os.path.join(_PROJECT_ROOT, "models", "ccpd001.tflite")
+    lpr_path  = os.path.join(_PROJECT_ROOT, "models", "recognition.tflite")
 
     print("Loading models…")
     try:
