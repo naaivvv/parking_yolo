@@ -2,6 +2,8 @@ import os
 import cv2
 from ultralytics import YOLO
 
+from preprocess import preprocess_yolo
+
 # Class indices as defined in the training dataset
 CLASS_NAMES = ['car', 'large vehicle', 'motorcycle', 'plate']
 PLATE_CLASS_IDX = 3       # 'plate' is index 3
@@ -41,7 +43,10 @@ class VehiclePlateDetector:
         valid_plates : list[dict]
             Subset of detections where class == 'plate', each with key 'bbox'
         """
-        results = self.model.predict(source=frame, conf=self.conf, verbose=False)
+        # Apply YOLO-specific preprocessing (e.g. Gamma Correction for lighting)
+        yolo_ready_frame = preprocess_yolo(frame)
+        
+        results = self.model.predict(source=yolo_ready_frame, conf=self.conf, verbose=False)
         boxes = results[0].boxes
 
         detections = []
