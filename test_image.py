@@ -147,6 +147,14 @@ def run_test(args):
                 continue
 
             tensor_input = preprocess_plate(plate_crop)
+            
+            # Extract and save the preprocessed crop being fed to the LPRNet model
+            prep_img = (tensor_input[0] * 255.0).astype("uint8")
+            prep_img_bgr = cv2.cvtColor(prep_img, cv2.COLOR_RGB2BGR)
+            save_path = os.path.join(_PROJECT_ROOT, f"preprocessed_plate_{i+1}.jpg")
+            cv2.imwrite(save_path, prep_img_bgr)
+            print(f"  [DEBUG] Saved preprocessed crop to {save_path}")
+
             raw_text     = ocr_engine.extract_text(tensor_input)
             result       = format_ocr_result(raw_text)
 
