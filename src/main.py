@@ -311,7 +311,7 @@ class ALPRApp(tk.Tk):
 # ---------------------------------------------------------------------------
 def main():
     yolo_path = os.path.join(_PROJECT_ROOT, "models", "yolo26_custom.pt")
-    lpr_path  = os.path.join(_PROJECT_ROOT, "models", "ph001.tflite")
+    lpr_path  = os.path.join(_PROJECT_ROOT, "models", "ccpd001.tflite")
 
     print("Loading models…")
     try:

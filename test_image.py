@@ -56,8 +56,8 @@ def parse_args():
     )
     parser.add_argument(
         "--lpr",
-        default=os.path.join(_PROJECT_ROOT, "models", "ph001.tflite"),
-        help="Path to the TFLite LPRNet model (default: models/ph001.tflite)"
+        default=os.path.join(_PROJECT_ROOT, "models", "recognition.tflite"),
+        help="Path to the TFLite LPRNet model (default: models/recognition.tflite)"
     )
     parser.add_argument(
         "--conf",

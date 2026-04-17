@@ -1,19 +1,17 @@
 # 🚗 Parking YOLO — License Plate & Vehicle Detection
 
-A real-time parking lot object detection web application powered by **YOLOv8** and **Flask**. It streams live video from a webcam or video file and detects vehicles and license plates using a custom-trained YOLO model.
+A local ALPR (Automatic License Plate Recognition) system powered by **YOLOv8** and a custom **LPRNet TFLite** model. It detects vehicles and license plates in a single YOLO pass, then reads the plate characters using an on-device TFLite model — no cloud API required.
 
 ---
 
 ## 📸 Features
 
-- 🔴 **Live Video Streaming** via webcam or video file through a browser interface
-- 🧠 **Custom-Trained YOLO Model** detecting 4 classes:
-  - `car`
-  - `large vehicle`
-  - `motorcycle`
-  - `plate` (license plate)
-- 🌐 **Flask Web Server** serving a real-time MJPEG video stream
-- 📦 Lightweight, easy to set up and run locally
+- 🧠 **Two-Stage AI Pipeline** — YOLOv8 for detection, LPRNet TFLite for OCR
+- 🚗 **4-Class Detection** — `car`, `large vehicle`, `motorcycle`, `plate`
+- 🖥️ **Desktop GUI** (`src/main.py`) — Tkinter UI with a **Capture Frame** button; grabs a single webcam shot on demand and displays annotated results
+- 🖼️ **Static Image Test Script** (`test_image.py`) — run the full pipeline on any image file from the command line
+- 🇵🇭 **Philippine Plate Optimised** — charset and validation tuned for PH plates (e.g. `ABC1234`)
+- 📦 **100% Local** — all inference runs on-device, no internet needed
 
 ---
 
@@ -21,10 +19,11 @@ A real-time parking lot object detection web application powered by **YOLOv8** a
 
 | Technology | Purpose |
 |---|---|
-| [YOLOv8 (Ultralytics)](https://github.com/ultralytics/ultralytics) | Object detection model |
-| [OpenCV](https://opencv.org/) | Video capture & frame processing |
-| [Flask](https://flask.palletsprojects.com/) | Web server & video streaming |
-| [Jinja2](https://jinja.palletsprojects.com/) | HTML templating |
+| [YOLOv8 (Ultralytics)](https://github.com/ultralytics/ultralytics) | Vehicle & plate detection |
+| [TensorFlow Lite](https://www.tensorflow.org/lite) | On-device LPRNet OCR inference |
+| [OpenCV](https://opencv.org/) | Frame capture & image processing |
+| [Tkinter](https://docs.python.org/3/library/tkinter.html) | Desktop GUI |
+| [Pillow](https://python-pillow.org/) | Image rendering inside Tkinter |
 | Python 3.8+ | Core language |
 
 ---
@@ -33,12 +32,24 @@ A real-time parking lot object detection web application powered by **YOLOv8** a
 
 ```
 parking_yolo/
-├── app.py                  # Flask application & video streaming logic
-├── model.pt                # Custom-trained YOLO model weights
-├── parking_yolo.ipynb      # Jupyter Notebook for model training & evaluation
+├── src/
+│   ├── main.py             # Tkinter desktop UI (Capture Frame button)
+│   ├── detect.py           # VehiclePlateDetector — YOLOv8 wrapper
+│   ├── ocr.py              # EdgeLPRNet — TFLite OCR engine
+│   ├── preprocess.py       # Plate crop preprocessing for LPRNet input
+│   └── utils.py            # Drawing helpers & OCR output formatter
+├── models/
+│   ├── yolo26_custom.pt    # Custom-trained YOLOv8 weights
+│   ├── ph001.tflite        # LPRNet TFLite — Philippine plates
+│   ├── ccpd001.tflite      # LPRNet TFLite — CCPD dataset (alt)
+│   └── recognition.tflite  # General recognition model (alt)
 ├── templates/
-│   └── index.html          # Web UI for the live video stream
-├── venv/                   # Python virtual environment (not tracked)
+│   └── index.html          # Legacy Flask web UI
+├── test_image.py           # CLI test script for static images
+├── app.py                  # Legacy Flask streaming app
+├── parking_yolo.ipynb      # Model training & evaluation notebook
+├── requirements.txt
+├── .env
 └── README.md
 ```
 
@@ -49,7 +60,7 @@ parking_yolo/
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/parking_yolo.git
+git clone https://github.com/naaivvv/parking_yolo.git
 cd parking_yolo
 ```
 
@@ -68,58 +79,81 @@ source venv/bin/activate
 ### 3. Install Dependencies
 
 ```bash
-pip install flask ultralytics opencv-python
+pip install -r requirements.txt
 ```
 
-### 4. Add Your Model Weights
+### 4. Add Your Model Files
 
-Place your custom-trained YOLO model file (`best.pt` or `model.pt`) in the root project directory.
+Place the following files inside the `models/` directory:
 
-> **Note:** The `app.py` currently loads `best.pt`. Rename your file or update the path in `app.py`:
-> ```python
-> model = YOLO('best.pt')
-> ```
+| File | Description |
+|---|---|
+| `yolo26_custom.pt` | Custom YOLOv8 weights for vehicle & plate detection |
+| `ph001.tflite` | LPRNet TFLite model (Philippine plates) |
+| `ccpd001.tflite` | LPRNet TFLite model (CCPD dataset, alternative) |
+| `recognition.tflite` | General recognition TFLite model (alternative) |
 
 ---
 
-## 🚀 Running the Application
+## 🚀 Running the Desktop App
+
+Launch the Tkinter GUI from the project root:
 
 ```bash
-python app.py
+python src/main.py
 ```
 
-The server will start on **http://0.0.0.0:5000**. Open your browser and navigate to:
+A window will open. Click **📷 Capture Frame** to:
+1. Open the webcam and grab a single frame
+2. Run YOLO detection on all objects
+3. Run LPRNet OCR on every detected plate crop
+4. Display the annotated image and plate results in the UI
 
-```
-http://localhost:5000
-```
-
-You should see the live video stream with bounding boxes drawn around detected vehicles and license plates.
+> The webcam is only open for the duration of the capture — there is no continuous video stream.
 
 ---
 
-## 🎥 Video Source Configuration
+## 🖼️ Test Script — Static Image
 
-By default, the app uses your **webcam (device index `0`)**. To use a video file instead, update `app.py`:
+Use `test_image.py` to run the full pipeline on an image file without launching the GUI.
 
-```python
-# Webcam
-cap = cv2.VideoCapture(0)
+### Basic Usage
 
-# Video file
-cap = cv2.VideoCapture('parking_video.mp4')
+```bash
+# From the project root
+venv\Scripts\python.exe test_image.py path\to\your\image.jpg
 ```
 
----
+### YOLO Only (Skip OCR)
 
-## 🧪 Model Training
+```bash
+venv\Scripts\python.exe test_image.py path\to\image.jpg --no-ocr
+```
 
-The `parking_yolo.ipynb` notebook documents the full model training pipeline, including:
+### Custom Model Paths
 
-- Dataset preparation and annotation
-- YOLOv8 model training configuration
-- Validation and evaluation metrics
-- Exporting the trained model weights
+```bash
+venv\Scripts\python.exe test_image.py path\to\image.jpg --yolo models\yolo26_custom.pt --lpr models\ph001.tflite
+```
+
+### Headless (No Display Window)
+
+```bash
+# Saves annotated result to test_output.jpg without opening a window
+venv\Scripts\python.exe test_image.py path\to\image.jpg --no-show
+```
+
+### All Options
+
+| Flag | Default | Description |
+|---|---|---|
+| `image` | *(required)* | Path to the input image |
+| `--yolo` | `models/yolo26_custom.pt` | Path to YOLO `.pt` model |
+| `--lpr` | `models/recognition.tflite` | Path to TFLite LPRNet model |
+| `--conf` | `0.25` | YOLO confidence threshold |
+| `--no-ocr` | — | Skip OCR, show YOLO detections only |
+| `--output` | `test_output.jpg` | Path to save the annotated output image |
+| `--no-show` | — | Don't open a display window |
 
 ---
 
@@ -134,6 +168,17 @@ The `parking_yolo.ipynb` notebook documents the full model training pipeline, in
 
 ---
 
+## 🧪 Model Training
+
+The `parking_yolo.ipynb` notebook documents the full model training pipeline, including:
+
+- Dataset preparation and annotation
+- YOLOv8 model training configuration
+- Validation and evaluation metrics
+- Exporting the trained model weights
+
+---
+
 ## 📝 License
 
 This project is intended for educational and research purposes.
@@ -143,5 +188,6 @@ This project is intended for educational and research purposes.
 ## 🙌 Acknowledgements
 
 - [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics) for the detection framework
+- [TensorFlow Lite](https://www.tensorflow.org/lite) for on-device OCR inference
 - [Roboflow](https://roboflow.com/) for dataset management tools
-- [OpenCV](https://opencv.org/) for video processing
+- [OpenCV](https://opencv.org/) for image and video processing
