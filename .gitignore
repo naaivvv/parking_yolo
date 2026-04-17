@@ -1,0 +1,133 @@
+# ===========================================
+# Python
+# ===========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+.eggs/
+
+# ===========================================
+# Virtual Environment
+# ===========================================
+venv/
+env/
+.venv/
+.env/
+ENV/
+
+# ===========================================
+# Environment Variables / Secrets
+# ===========================================
+.env
+.env.*
+*.env
+
+# ===========================================
+# YOLO / Model Weights
+# ===========================================
+# Uncomment the lines below if you do NOT want to track model weights in git.
+# Model files can be large (>100MB) and are better stored with Git LFS or separately.
+# *.pt
+# *.pth
+# *.weights
+# *.onnx
+
+# YOLO training runs output
+runs/
+weights/
+
+# ===========================================
+# Jupyter Notebooks
+# ===========================================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ===========================================
+# Data & Datasets
+# ===========================================
+datasets/
+data/
+*.zip
+*.tar.gz
+*.rar
+
+# Video files (can be large)
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# Image datasets
+*.jpg
+*.jpeg
+*.png
+*.bmp
+# Note: If you have sample images for docs, track them explicitly with !filename.png
+
+# ===========================================
+# IDE & Editor Files
+# ===========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===========================================
+# OS Files
+# ===========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ===========================================
+# Logs & Temporary Files
+# ===========================================
+*.log
+*.tmp
+*.temp
+logs/
+
+# ===========================================
+# Testing & Coverage
+# ===========================================
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+
+# ===========================================
+# Flask / Web
+# ===========================================
+instance/
+.webassets-cache
+
+# ===========================================
+# Miscellaneous
+# ===========================================
+*.bak
+*.orig

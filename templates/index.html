@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parking Object Detection - YOLO26</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+
+        h1 {
+            background-color: #2c3e50;
+            color: white;
+            padding: 20px 0;
+            margin: 0 0 20px 0;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+
+        .video-feed {
+            width: 100%;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .classes-list {
+            margin: 20px 0;
+            font-size: 1.2em;
+            color: #555;
+        }
+
+        .classes-list span {
+            display: inline-block;
+            background: #e0e0e0;
+            padding: 5px 15px;
+            margin: 5px;
+            border-radius: 20px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>YOLO26 Parking Detection Web App</h1>
+
+    <div class="container">
+        <div class="classes-list">
+            <p><strong>Detecting 4 Classes:</strong></p>
+            {% for cls in classes %}
+            <span>{{ cls }}</span>
+            {% endfor %}
+        </div>
+
+        <h2>Live Video Stream</h2>
+        <img class="video-feed" src="{{ url_for('video_feed') }}" alt="Video Stream will appear here.">
+    </div>
+</body>
+
+</html>
