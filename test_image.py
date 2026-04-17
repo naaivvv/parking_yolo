@@ -136,8 +136,12 @@ def run_test(args):
     # ── Run OCR on each plate crop ────────────────────────────────────────────
     annotated = draw_overlays(frame.copy(), detections)
 
-    if ocr_engine and valid_plates:
-        print("[INFO] Running OCR on detected plates...\n")
+    if valid_plates:
+        if ocr_engine:
+            print("[INFO] Running OCR on detected plates...\n")
+        else:
+            print("[INFO] OCR skipped (model not loaded). Still saving preprocessed crops for inspection.\n")
+            
         for i, plate in enumerate(valid_plates):
             x1, y1, x2, y2 = plate["bbox"]
             plate_crop = frame[y1:y2, x1:x2]
@@ -153,22 +157,23 @@ def run_test(args):
             prep_img_bgr = cv2.cvtColor(prep_img, cv2.COLOR_RGB2BGR)
             save_path = os.path.join(_PROJECT_ROOT, f"preprocessed_plate_{i+1}.jpg")
             cv2.imwrite(save_path, prep_img_bgr)
-            print(f"  [DEBUG] Saved preprocessed crop to {save_path}")
+            
+            if ocr_engine:
+                print(f"  [DEBUG] Saved preprocessed crop to {save_path}")
+                raw_text     = ocr_engine.extract_text(tensor_input)
+                result       = format_ocr_result(raw_text)
 
-            raw_text     = ocr_engine.extract_text(tensor_input)
-            result       = format_ocr_result(raw_text)
+                print(
+                    f"  Plate {i+1}: {result['plate_number']:12s} "
+                    f"| Valid PH: {str(result['valid']):5s} "
+                    f"| Raw: '{result['raw']}'"
+                )
 
-            print(
-                f"  Plate {i+1}: {result['plate_number']:12s} "
-                f"| Valid PH: {str(result['valid']):5s} "
-                f"| Raw: '{result['raw']}'"
-            )
+                # Draw OCR result on the annotated frame
+                annotated = draw_plate_result(annotated, plate["bbox"], result["plate_number"])
+            else:
+                print(f"  [DEBUG] Plate {i+1} saved to {save_path} (OCR skipped)")
 
-            # Draw OCR result on the annotated frame
-            annotated = draw_plate_result(annotated, plate["bbox"], result["plate_number"])
-
-    elif valid_plates and not ocr_engine:
-        print("[INFO] OCR skipped (model not loaded).")
     else:
         print("[INFO] No plate crops to run OCR on.")
 
