@@ -388,7 +388,7 @@ class ALPRApp(tk.Tk):
 # ---------------------------------------------------------------------------
 def main():
     yolo_path = os.path.join(_PROJECT_ROOT, "models", "yolo26_custom.pt")
-    lpr_path  = os.path.join(_PROJECT_ROOT, "models", "recognition.tflite")
+    lpr_path  = os.path.join(_PROJECT_ROOT, "models", "lprnet_ph_yolo_preprocessed.tflite")
 
     print("Loading models…")
     try:
