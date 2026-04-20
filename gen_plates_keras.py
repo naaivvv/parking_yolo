@@ -1,0 +1,239 @@
+import argparse
+import os
+import random
+import sys
+import cv2
+import numpy as np
+from data_aug_keras import data_augmentation
+from PIL import Image
+from PIL import ImageDraw
+from PIL import ImageFont
+import cv2
+import glob
+
+def preprocess_plate(image, target_size=(94, 24)):
+    """
+    Preprocesses the cropped plate specifically for the Keras LPRNet.
+    target_size is (width, height) for OpenCV.
+    Applies strong contrast enhancements (Grayscale + CLAHE + Sharpening).
+    """
+    # Ensure uint8 for OpenCV operations
+    if image.dtype != np.uint8:
+        if image.max() <= 1.0:
+            image = (image * 255).astype(np.uint8)
+        else:
+            image = image.astype(np.uint8)
+
+    # 1. Resize strictly to 94 (Width) x 24 (Height)
+    resized = cv2.resize(image, target_size, interpolation=cv2.INTER_CUBIC)
+    
+    # 2. Convert to grayscale to remove color noise and variability
+    if len(resized.shape) == 3 and resized.shape[2] == 3:
+        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = resized
+    
+    # 3. Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(4, 4))
+    enhanced_gray = clahe.apply(gray)
+    
+    # 4. Sharpen the image to make edges (text) more distinct
+    blurred = cv2.GaussianBlur(enhanced_gray, (3, 3), 0)
+    sharpened = cv2.addWeighted(enhanced_gray, 1.5, blurred, -0.5, 0)
+    
+    # 5. Convert back to RGB for the 3-channel requirement of LPRNet
+    processed = cv2.cvtColor(sharpened, cv2.COLOR_GRAY2RGB)
+    
+    # 6. Normalize pixel values to [0, 1] as expected by standard Keras floats
+    processed = processed.astype(np.float32) / 255.0
+    
+    return processed
+
+
+class RealImageGenerator:
+    def __init__(self,image_path = "data//*//*//", augmentation = True):
+        self.augmentation=augmentation
+        
+        self.images =  glob.glob(image_path+"*.png")
+        print(len(self.images))
+    
+    def generate_images(self, number, training = True):
+        images,labels = [],[]
+        randindices = np.random.randint(0,len(self.images)-1,number)
+        i=0
+        imgs = [self.images[i] for i in randindices]
+        for fl in imgs:
+            label = fl.split('\\')[-1].split('_')[0].split('-')[0]
+            img = cv2.imread(fl)
+            Plate = img.astype(np.float32)
+            if self.augmentation:
+                Plate = data_augmentation(Plate)
+            if training == False:
+                images.append(preprocess_plate(Plate))
+            else:
+                images.append(preprocess_plate(Plate))
+            labels.append(label)
+            if i == number-1:
+                break
+            i+=1
+        return images, labels
+
+
+class ImageGenerator:
+    def __init__(self, ttf_dir='./fonts/', char_set='ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', char_height=36, demo = False):
+        self.demo = demo
+        self.chars = char_set
+        self.letters = []
+        self.digits = []
+        for c in char_set:
+            self.letters.append(c)
+            self.digits.append(c)
+
+        self.char_height = char_height
+        self.ttf_dir = ttf_dir
+        self.fonts, self.font_char_ims = self.load_fonts(ttf_dir)
+        green = [0,1,0]
+        white = [1, 1, 1]
+        yellow = [0, 1, 1]
+        blue = [1, 0, 0]
+        self.black_text_colors = [white, yellow,green]
+        self.white_text_colors = [blue]
+
+    def random_text_plate_colors(self, min_diff=0.3, black_text=True):
+        high = random.uniform(min_diff, 1.0)
+        low = random.uniform(0.0, high - min_diff)
+        text_color, plate_color = (low, high) if black_text else (high, low)
+        return text_color, plate_color
+
+    def load_fonts(self, folder_path):
+        font_char_ims = {}
+        fonts = [f for f in os.listdir(folder_path) if (f.endswith('.TTF') or f.endswith('.ttf')) ]
+        for font in fonts:
+            font_char_ims[font] = dict(self.generate_char_imgs(\
+                os.path.join(folder_path, font), self.char_height))
+        return fonts, font_char_ims
+
+    def generate_char_imgs(self, font_path, output_height):
+        font_size = output_height * 4
+        font = ImageFont.truetype(font_path, font_size)
+
+        def get_char_size(f, text):
+            # Pillow 10.0.0+ replacement for getsize
+            bbox = f.getbbox(text)
+            if bbox is None: return (0, 0)
+            return (bbox[2], bbox[3]) # Use right and bottom as width/height
+
+        height = max(get_char_size(font, c)[1] for c in self.chars)
+
+        for c in self.chars:
+            width, _ = get_char_size(font, c)
+            im = Image.new("RGBA", (width, height), (0, 0, 0))
+
+            draw = ImageDraw.Draw(im)
+            draw.text((0, 0), c, (255, 255, 255), font=font)
+            scale = float(output_height) / height
+            # Image.ANTIALIAS was removed in Pillow 10; use Image.Resampling.LANCZOS
+            resample_filter = getattr(Image, 'Resampling', Image).LANCZOS if hasattr(Image, 'Resampling') else Image.ANTIALIAS
+            im = im.resize((int(width * scale), output_height), resample_filter)
+            yield c, np.array(im)[:, :, 0]
+
+    def generate_code_trial(self):
+        # random 1~2 letters + 1~2 digits + 2~3 letters
+        pre_n = random.randint(1, 2)
+        pre_letters = [random.choice(self.letters) for _ in range(pre_n)]
+        digit_n = random.randint(1, 2)
+        digits = [random.choice(self.digits) for _ in range(digit_n)]
+        post_n = random.randint(2, 3)
+        post_letters = [random.choice(self.letters) for _ in range(post_n)]
+
+        code = ''.join(pre_letters) + ''.join(digits) + '-' + ''.join(post_letters)
+        return code
+
+    def getOneRandomFont(self):
+        return random.choice(self.fonts)
+
+    def getCharGivenLabelFont(self, label, font):
+        char_ims = self.font_char_ims[font]
+        char_img = char_ims[label]
+        return char_img, label
+
+    def generate_images(self, number, training = True):
+
+        images = []
+        labels = []
+
+        for _ in enumerate(range(number)):
+
+            char_height = self.char_height
+            code = self.generate_code_trial()
+
+            space = round(char_height * random.uniform(0.0, 0.3))
+            char_spacing = []
+            for c in code:
+                if c == '-':
+                    char_spacing[-1] += space
+                else:
+                    char_spacing.append(space)
+
+            code = code.replace('-','')
+
+            # generate letter, number images
+            char_ims = []
+            char_font = self.getOneRandomFont()
+
+            for i, c in enumerate(code):
+                char, label = self.getCharGivenLabelFont(c, char_font)
+                char_ims.append(char)
+
+            char_width_sum = sum(char_im.shape[1] for char_im in char_ims)
+
+            top_padding = round(random.uniform(0.1, 1.0) * char_height)
+            bot_padding = round(random.uniform(0.1, 1.0) * char_height)
+            left_padding = round(random.uniform(0.1, 1.0) * char_height)
+            right_padding = round(random.uniform(0.1, 1.0) * char_height)
+
+            Plate_h = (char_height + top_padding + bot_padding)
+            Plate_w = (char_width_sum + left_padding + right_padding + sum(char_spacing[:-1]))
+
+            out_shape = (Plate_h, Plate_w)
+            text_mask = np.zeros(out_shape)
+
+            x = left_padding
+            y = top_padding
+
+            for ind, c in enumerate(code):
+                char_im = char_ims[ind]
+                ix, iy = int(x), int(y)
+                text_mask[iy:iy + char_im.shape[0], ix:ix + char_im.shape[1]] = char_im
+                x += char_im.shape[1] + char_spacing[ind]
+
+            # Force white text on black/dark background to match real data samples
+            is_black_text = False
+            text_color, plate_color = self.random_text_plate_colors(black_text=is_black_text)
+
+            plate_mask = (255. - text_mask)
+
+            color = np.array([1, 1, 1]) # White text, dark background
+            
+            w_color = color * plate_color
+
+            dim = (Plate_h, Plate_w, 3)
+            Plate = np.ones(dim)
+            Plate[:, :, 0] = text_mask * text_color
+            Plate[:, :, 1] = text_mask * text_color
+            Plate[:, :, 2] = text_mask * text_color
+            Plate[:, :, 0] += plate_mask * w_color[0]
+            Plate[:, :, 1] += plate_mask * w_color[1]
+            Plate[:, :, 2] += plate_mask * w_color[2]
+
+            Plate = Plate.astype(np.float32)
+            Plate = data_augmentation(Plate)
+            if self.demo:
+                images.append(preprocess_plate(Plate))
+            else:
+                images.append(preprocess_plate(Plate))
+            labels.append(code)
+
+        #load sample from train images
+
+        return images, labels

@@ -65,6 +65,7 @@ data/
 *.zip
 *.tar.gz
 *.rar
+*.coco
 
 # Video files (can be large)
 *.mp4
