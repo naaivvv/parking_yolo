@@ -1,22 +1,13 @@
-"""
-main.py — ALPR Desktop UI (Tkinter)
-====================================
-Presents a simple GUI with a single "Capture Frame" button.
-On click it:
-  1. Opens the webcam, grabs one frame, then closes the webcam.
-  2. Runs YOLO to detect vehicles and plates.
-  3. Runs LPRNet OCR on each detected plate crop.
-  4. Displays the annotated frame and results inside the window.
-
-Run from the project root:
-    python src/main.py
+"""main.py — ALPR Desktop UI (Tkinter)
+Upload an image or use the camera to detect plates.
+Run from the project root:  python src/main.py
 """
 
 import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 
 import cv2
 from PIL import Image, ImageTk
@@ -65,20 +56,18 @@ class ALPRApp(tk.Tk):
         self.resizable(True, True)
         self.minsize(900, 620)
 
-        self._photo_ref = None   # keep PhotoImage alive (GC prevention)
+        self._photo_ref = None
         self.cap = None
         self.is_streaming = False
         self.current_frame = None
+        self._processing = False
 
         self._build_ui()
         self.update_idletasks()
-        # Center window
         w, h = 1100, 680
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
-
-        self._start_stream()
 
     def destroy(self):
         self.is_streaming = False
@@ -107,7 +96,7 @@ class ALPRApp(tk.Tk):
         body = tk.Frame(self, bg=BG_DARK, padx=18, pady=14)
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=3)
-        body.columnconfigure(1, weight=1)
+        body.columnconfigure(1, weight=1, minsize=280)
         body.rowconfigure(0, weight=1)
 
         # ── Left: image pane ─────────────────────────────────────────────────
@@ -122,8 +111,7 @@ class ALPRApp(tk.Tk):
 
         self.img_label = tk.Label(
             left, bg="#010409",
-            width=PREVIEW_W, height=PREVIEW_H,
-            text="No frame captured yet.\nPress  [ Capture Frame ]  to begin.",
+            text="Upload an image or start the camera.",
             fg="#30363d", font=("Segoe UI", 12),
             compound="center",
         )
@@ -133,35 +121,57 @@ class ALPRApp(tk.Tk):
         right = tk.Frame(body, bg=BG_DARK)
         right.grid(row=0, column=1, sticky="nsew")
 
-        # Capture button
-        self.btn_capture = tk.Button(
+        # Upload Image button (primary)
+        self.btn_upload = tk.Button(
             right,
-            text="📷   Capture Frame",
+            text="📁   Upload Image",
             font=("Segoe UI", 13, "bold"),
             fg="white", bg=ACCENT,
             activebackground=ACCENT_HV, activeforeground="white",
             relief="flat", bd=0,
             padx=16, pady=14,
             cursor="hand2",
+            command=self._on_upload,
+        )
+        self.btn_upload.pack(fill="x", pady=(0, 8))
+        self._bind_hover(self.btn_upload, ACCENT_HV, ACCENT)
+
+        # Separator label
+        tk.Label(
+            right, text="— or use camera —",
+            font=("Segoe UI", 9), fg="#484f58", bg=BG_DARK,
+        ).pack(pady=(0, 8))
+
+        # Start / Stop Camera button
+        self.btn_camera = tk.Button(
+            right,
+            text="📷   Start Camera",
+            font=("Segoe UI", 11, "bold"),
+            fg="white", bg="#30363d",
+            activebackground="#484f58", activeforeground="white",
+            relief="flat", bd=0,
+            padx=14, pady=10,
+            cursor="hand2",
+            command=self._on_toggle_camera,
+        )
+        self.btn_camera.pack(fill="x", pady=(0, 6))
+        self._bind_hover(self.btn_camera, "#484f58", "#30363d")
+
+        # Capture button (only active when camera is streaming)
+        self.btn_capture = tk.Button(
+            right,
+            text="⏺   Capture & Detect",
+            font=("Segoe UI", 11, "bold"),
+            fg="white", bg="#21262d",
+            activebackground="#484f58", activeforeground="white",
+            relief="flat", bd=0,
+            padx=14, pady=10,
+            cursor="hand2",
+            state="disabled",
             command=self._on_capture,
         )
-        self.btn_capture.pack(fill="x", pady=(0, 10))
-        self._bind_hover(self.btn_capture, ACCENT_HV, ACCENT)
-
-        # Resume button
-        self.btn_resume = tk.Button(
-            right,
-            text="▶   Resume Camera",
-            font=("Segoe UI", 13, "bold"),
-            fg="white", bg="#30363d",
-            activebackground="#4b5563", activeforeground="white",
-            relief="flat", bd=0,
-            padx=16, pady=14,
-            cursor="hand2",
-            command=self._on_resume,
-        )
-        self.btn_resume.pack(fill="x")
-        self._bind_hover(self.btn_resume, "#4b5563", "#30363d")
+        self.btn_capture.pack(fill="x")
+        self._bind_hover(self.btn_capture, "#484f58", "#21262d")
 
         # Status label
         self.status_var = tk.StringVar(value="Ready.")
@@ -218,76 +228,97 @@ class ALPRApp(tk.Tk):
         self.status_var.set(msg)
         self.update_idletasks()
 
+    # ── Upload image ──────────────────────────────────────────────────────────
+    def _on_upload(self):
+        if self._processing:
+            return
+        path = filedialog.askopenfilename(
+            title="Select an image to analyse",
+            filetypes=[("Images", "*.jpg *.jpeg *.png *.bmp *.tiff *.webp"), ("All", "*.*")],
+        )
+        if not path:
+            return
+
+        # Stop camera if running
+        self._stop_camera()
+
+        frame = cv2.imread(path)
+        if frame is None:
+            messagebox.showerror("Read Error", f"Cannot read image:\n{path}")
+            return
+
+        # Show the raw uploaded image immediately
+        self._display_frame(frame)
+        self._set_status(f"Processing {os.path.basename(path)}…")
+        self._set_processing(True)
+        threading.Thread(target=self._pipeline, args=(frame,), daemon=True).start()
+
     # ── Camera streaming ─────────────────────────────────────────────────────
-    def _start_stream(self):
+    def _on_toggle_camera(self):
+        if self.is_streaming:
+            self._stop_camera()
+        else:
+            self._start_camera()
+
+    def _start_camera(self):
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             messagebox.showerror("Camera Error", "Cannot open webcam (device 0).")
             return
-        
         self.is_streaming = True
         self._set_status("Live camera feed active.")
-        self.btn_resume.config(state="disabled", bg="#21262d")
-        self.btn_capture.config(state="normal")
+        self.btn_camera.config(text="⏹   Stop Camera")
+        self.btn_capture.config(state="normal", bg="#30363d")
         self._update_stream()
+
+    def _stop_camera(self):
+        self.is_streaming = False
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+        self.cap = None
+        self.current_frame = None
+        self.btn_camera.config(text="📷   Start Camera")
+        self.btn_capture.config(state="disabled", bg="#21262d")
 
     def _update_stream(self):
         if self.is_streaming and self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
             if ret:
                 self.current_frame = frame
-                rgb  = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img  = Image.fromarray(rgb)
-                
-                # Use Image.Resampling.LANCZOS if available, else Image.LANCZOS
-                resampling = getattr(Image, "Resampling", Image)
-                lanczos = getattr(resampling, "LANCZOS", getattr(Image, "LANCZOS", 1))
-                
-                img.thumbnail((PREVIEW_W, PREVIEW_H), lanczos)
-                photo = ImageTk.PhotoImage(img)
-                self.img_label.config(image=photo, text="")
-                self._photo_ref = photo
-            
+                self._display_frame(frame)
             self.after(30, self._update_stream)
 
-    def _on_resume(self):
-        if not self.cap or not self.cap.isOpened():
-            self._start_stream()
-            return
-            
-        self.is_streaming = True
-        self.btn_resume.config(state="disabled", bg="#21262d")
-        self.btn_capture.config(state="normal", text="📷   Capture Frame")
-        self._set_status("Live camera feed active.")
-        
-        # Clear the detections and plates display
-        self.det_text.config(state="normal")
-        self.det_text.delete("1.0", "end")
-        self.det_text.config(state="disabled")
-        
-        for w in self.plates_frame.winfo_children():
-            w.destroy()
-        self._empty_label = tk.Label(
-            self.plates_frame, text="—",
-            font=("Segoe UI", 10), fg=TEXT_SEC, bg=BG_DARK,
-        )
-        self._empty_label.pack(anchor="w")
-
-        self.update_idletasks()
-        self._update_stream()
+    def _display_frame(self, frame_bgr):
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(rgb)
+        resampling = getattr(Image, "Resampling", Image)
+        lanczos = getattr(resampling, "LANCZOS", getattr(Image, "LANCZOS", 1))
+        img.thumbnail((PREVIEW_W, PREVIEW_H), lanczos)
+        photo = ImageTk.PhotoImage(img)
+        self.img_label.config(image=photo, text="")
+        self._photo_ref = photo
 
     # ── Capture pipeline ─────────────────────────────────────────────────────
     def _on_capture(self):
-        if not self.is_streaming or self.current_frame is None:
+        if not self.is_streaming or self.current_frame is None or self._processing:
             return
-            
-        self.is_streaming = False
-        self.btn_capture.config(state="disabled", text="⏳   Processing…")
-        self.btn_resume.config(state="normal", bg="#30363d")
-        self._set_status("Processing captured frame…")
-        
+        self._stop_camera()
         frame_to_process = self.current_frame.copy()
+        self._display_frame(frame_to_process)
+        self._set_status("Processing captured frame…")
+        self._set_processing(True)
         threading.Thread(target=self._pipeline, args=(frame_to_process,), daemon=True).start()
+
+    def _set_processing(self, active: bool):
+        self._processing = active
+        if active:
+            self.btn_upload.config(state="disabled", text="⏳   Processing…")
+            self.btn_capture.config(state="disabled")
+        else:
+            self.btn_upload.config(state="normal", text="📁   Upload Image")
+            # Re-enable capture only if camera is streaming
+            if self.is_streaming:
+                self.btn_capture.config(state="normal", bg="#30363d")
 
     def _pipeline(self, frame):
         try:
@@ -322,8 +353,7 @@ class ALPRApp(tk.Tk):
         except Exception as exc:
             self.after(0, lambda: messagebox.showerror("Pipeline Error", str(exc)))
         finally:
-            self.after(0, lambda: self.btn_capture.config(
-                text="📷   Capture Frame"))
+            self.after(0, lambda: self._set_processing(False))
 
     # ── UI update (always on main thread) ────────────────────────────────────
     def _update_ui(self, annotated_bgr, detections, plate_results):
