@@ -189,8 +189,8 @@ def hsv_space_variation(ori_img, scale):
 def data_augmentation(img):
     img = crop_subimage(img)
     
-    # Apply mild geometric skewing with 20% probability
-    if random.random() < 0.20:
+    # Apply mild geometric skewing with 10% probability (reduced from 20% for faster convergence)
+    if random.random() < 0.10:
         img = apply_geometric_skew(img)
         
     bright_scale = random.uniform(0.8, 1.2)
@@ -198,7 +198,7 @@ def data_augmentation(img):
     im = Image.fromarray(img_out)
 
     if augmentations:
-        im = random.choice(augmentations)(im, mag=random.randint(0, 3))
+        im = random.choice(augmentations)(im, mag=random.randint(0, 2))  # reduced from 3 for faster convergence
         im_out = np.array(im)
     else:
         im_out = np.array(im)

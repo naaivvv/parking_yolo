@@ -80,7 +80,7 @@ class RealImageGenerator:
 
 
 class ImageGenerator:
-    def __init__(self, ttf_dir='./fonts/', char_set='ABCDEFGHJKLMNPQRSTUVWXYZ0123456789', char_height=36, demo = False):
+    def __init__(self, ttf_dir='./fonts/', char_set='ABCDEFGHIJKLMNPQRSTUVWXYZ0123456789', char_height=36, demo = False):
         self.demo = demo
         self.chars = char_set
         self.letters = []

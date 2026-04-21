@@ -340,9 +340,13 @@ class ALPRApp(tk.Tk):
                     if crop.size == 0:
                         continue
 
-                    tensor  = preprocess_plate(crop)
-                    raw     = self.ocr_engine.extract_text(tensor)
-                    result  = format_ocr_result(raw)
+                    tensor   = preprocess_plate(crop)
+                    ocr_out  = self.ocr_engine.extract_text(tensor)
+                    # extract_text now returns a dict
+                    raw_text = ocr_out["text"] if isinstance(ocr_out, dict) else ocr_out
+                    conf     = ocr_out.get("confidence", 0.0) if isinstance(ocr_out, dict) else 0.0
+                    result   = format_ocr_result(raw_text)
+                    result["ocr_confidence"] = conf
                     plate_results.append(result)
                     annotated = draw_plate_result(annotated, plate["bbox"],
                                                   result["plate_number"])
@@ -378,11 +382,29 @@ class ALPRApp(tk.Tk):
                 card = tk.Frame(self.plates_frame, bg=BG_CARD, pady=10, padx=14)
                 card.pack(fill="x", pady=4)
 
+                conf = r.get("ocr_confidence", 0.0)
+                # Color-code by confidence: green > 70%, yellow > 40%, red otherwise
+                if conf >= 0.7:
+                    conf_color = PLATE_CLR  # green
+                elif conf >= 0.4:
+                    conf_color = "#f0c040"  # yellow
+                else:
+                    conf_color = RED_ACC    # red
+
                 tk.Label(
                     card,
                     text=r["plate_number"],
                     font=("Consolas", 22, "bold"),
-                    fg=PLATE_CLR, bg=BG_CARD,
+                    fg=conf_color, bg=BG_CARD,
+                ).pack(anchor="w")
+
+                conf_pct = f"{conf * 100:.1f}%"
+                valid_tag = " \u2713 Valid PH" if r.get("valid") else ""
+                tk.Label(
+                    card,
+                    text=f"Confidence: {conf_pct}{valid_tag}",
+                    font=("Segoe UI", 9),
+                    fg=TEXT_SEC, bg=BG_CARD,
                 ).pack(anchor="w")
         else:
             tk.Label(

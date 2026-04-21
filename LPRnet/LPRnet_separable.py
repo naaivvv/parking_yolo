@@ -5,7 +5,7 @@ import keras
 import keras.backend as K
 
 IMAGE_SHAPE = [94, 24]
-CHARS = "ABCDEFGHIJKLMNPQRSTUVWXYZ0123456789"  # exclude I, O
+CHARS = "ABCDEFGHIJKLMNPQRSTUVWXYZ0123456789"  # I included, only O excluded (avoid confusion with 0)
 CHARS_DICT = {char: i for i, char in enumerate(CHARS)}
 DECODE_DICT = {i: char for i, char in enumerate(CHARS)}
 NUM_CLASS = len(CHARS) + 1

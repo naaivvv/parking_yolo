@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
+
 class EdgeLPRNet:
     def __init__(self, model_path="models/ph001.tflite"):
         """
@@ -13,31 +14,59 @@ class EdgeLPRNet:
         self.input_details = self.interpreter.get_input_details()
         self.output_details = self.interpreter.get_output_details()
         
-        # Exact vocabulary from your LPRnet.py (Excludes I and O)
+        # Exact vocabulary from LPRnet_separable.py (I included, only O excluded)
         self.CHARS = "ABCDEFGHIJKLMNPQRSTUVWXYZ0123456789"
-        self.BLANK_IDX = len(self.CHARS) # Index 35 is the CTC Blank
+        self.BLANK_IDX = len(self.CHARS)  # Index 35 is the CTC Blank
 
     def _decode_ctc(self, preds):
         """
-        Greedy CTC Decoder tailored to Keras Softmax output.
-        preds shape: [1, sequence_length, NUM_CLASS]
+        Greedy CTC Decoder with per-character confidence scoring.
+
+        Parameters
+        ----------
+        preds : np.ndarray, shape [1, sequence_length, NUM_CLASS]
+            Softmax probabilities from the model.
+
+        Returns
+        -------
+        text : str
+            Decoded plate string.
+        char_confs : list[float]
+            Per-character confidence (max softmax probability).
+        avg_conf : float
+            Average confidence across all decoded characters.
         """
-        # Get the most likely character index per timestep
-        char_indices = np.argmax(preds[0], axis=1)
-        
+        probs = preds[0]  # shape: [sequence_length, NUM_CLASS]
+        char_indices = np.argmax(probs, axis=1)
+        char_probs = np.max(probs, axis=1)
+
         text = ""
+        char_confs = []
         prev_idx = -1
-        
-        for idx in char_indices:
+
+        for i, idx in enumerate(char_indices):
             # Skip CTC blank token and consecutive duplicates
             if idx != self.BLANK_IDX and idx != prev_idx:
-                text += self.CHARS[idx]
+                if idx < len(self.CHARS):
+                    text += self.CHARS[idx]
+                    char_confs.append(float(char_probs[i]))
             prev_idx = idx
-            
-        return text
+
+        avg_conf = float(np.mean(char_confs)) if char_confs else 0.0
+        return text, char_confs, avg_conf
 
     def extract_text(self, preprocessed_tensor):
-        """Runs local TFLite inference on the preprocessed tensor."""
+        """
+        Runs local TFLite inference on the preprocessed tensor.
+
+        Returns
+        -------
+        dict with keys:
+            text : str — decoded plate string
+            confidence : float — average per-character confidence (0.0–1.0)
+            char_confidences : list[float] — per-character confidence values
+            raw_preds : np.ndarray — raw softmax output for diagnostics
+        """
         try:
             # Set the tensor to point to the input data to be inferred
             self.interpreter.set_tensor(self.input_details[0]['index'], preprocessed_tensor)
@@ -48,14 +77,35 @@ class EdgeLPRNet:
             # Get the output Softmax probabilities
             preds = self.interpreter.get_tensor(self.output_details[0]['index'])
             
-            # Decode to Philippine plate text
-            result_text = self._decode_ctc(preds)
+            # Decode with confidence scoring
+            result_text, char_confs, avg_conf = self._decode_ctc(preds)
             
+            # Debug logging
+            print(f"[OCR] Decoded: '{result_text}' | "
+                  f"Avg Conf: {avg_conf:.3f} | "
+                  f"Chars: {len(result_text)} | "
+                  f"Per-char: {[f'{c:.2f}' for c in char_confs]}")
+
             if not result_text:
-                return "UNKNOWN"
-                
-            return result_text
-            
+                return {
+                    "text": "UNKNOWN",
+                    "confidence": 0.0,
+                    "char_confidences": [],
+                    "raw_preds": preds,
+                }
+
+            return {
+                "text": result_text,
+                "confidence": avg_conf,
+                "char_confidences": char_confs,
+                "raw_preds": preds,
+            }
+
         except Exception as e:
             print(f"[Local OCR Error] Failed to process plate: {e}")
-            return "ERROR"
+            return {
+                "text": "ERROR",
+                "confidence": 0.0,
+                "char_confidences": [],
+                "raw_preds": None,
+            }
