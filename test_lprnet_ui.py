@@ -494,8 +494,11 @@ class LPRNetTesterApp(tk.Tk):
         self.lbl_prep.config(image=self._photo_prep, text="")
 
         # Run OCR
-        raw_text = self.ocr_engine.extract_text(tensor_input)
+        ocr_dict = self.ocr_engine.extract_text(tensor_input)
+        raw_text = ocr_dict["text"]
         result = format_ocr_result(raw_text)
+        # Include confidence in result if needed, or we just keep the formatted result as is
+        result["confidence"] = ocr_dict.get("confidence", 0.0)
 
         # Cache result
         self._results[self.current_idx] = result
@@ -512,7 +515,7 @@ class LPRNetTesterApp(tk.Tk):
             text=f"{'✅ Valid PH Format' if valid else '⚠ Non-standard format'}",
             fg=PLATE_CLR if valid else GOLD,
         )
-        self.lbl_raw.config(text=f"raw: \"{result['raw']}\"")
+        self.lbl_raw.config(text=f"raw: \"{result['raw']}\"  |  conf: {result['confidence']:.3f}")
         self.lbl_filename.config(text=f"File: {basename}")
 
         self.status_var.set(f"Recognised: {plate}  ({'valid' if valid else 'non-standard'})  —  {basename}")
